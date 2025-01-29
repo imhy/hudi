@@ -49,10 +49,11 @@ import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.hadoop.fs.HadoopFSUtils;
-import org.apache.hudi.index.HoodieIndex;
 import org.apache.hudi.storage.HoodieStorage;
 import org.apache.hudi.storage.StoragePath;
 import org.apache.hudi.storage.StorageSchemes;
+import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
+import org.apache.hudi.storage.hadoop.HoodieHadoopStorage;
 import org.apache.hudi.table.action.compact.strategy.CompactionStrategy;
 import org.apache.hudi.utilities.checkpointing.InitialCheckPointProvider;
 import org.apache.hudi.utilities.config.SchemaProviderPostProcessorConfig;
@@ -395,14 +396,26 @@ public class UtilHelpers {
         .map(strategy -> HoodieCompactionConfig.newBuilder().withInlineCompaction(false)
             .withCompactionStrategy(strategy).build())
         .orElse(HoodieCompactionConfig.newBuilder().withInlineCompaction(false).build());
-    HoodieWriteConfig config =
-        HoodieWriteConfig.newBuilder().withPath(basePath)
-            .withParallelism(parallelism, parallelism)
-            .withBulkInsertParallelism(parallelism)
-            .withDeleteParallelism(parallelism)
-            .withSchema(schemaStr).combineInput(true, true).withCompactionConfig(compactionConfig)
-            .withIndexConfig(HoodieIndexConfig.newBuilder().withIndexType(HoodieIndex.IndexType.BLOOM).build())
-            .withProps(properties).build();
+
+    HoodieStorage storage = new HoodieHadoopStorage(basePath,
+        new HadoopStorageConfiguration(jsc.hadoopConfiguration()));
+
+    HoodieIndexConfig indexConfig;
+    try {
+      indexConfig = HoodieIndexConfig.newBuilder().fromTablePath(storage, basePath).build();
+    } catch (IOException e) {
+      throw new HoodieException(e);
+    }
+
+    HoodieWriteConfig config = HoodieWriteConfig.newBuilder()
+        .withPath(basePath)
+        .withParallelism(parallelism, parallelism)
+        .withBulkInsertParallelism(parallelism)
+        .withDeleteParallelism(parallelism)
+        .withSchema(schemaStr).combineInput(true, true)
+        .withCompactionConfig(compactionConfig)
+        .withIndexConfig(indexConfig)
+        .withProps(properties).build();
     return new SparkRDDWriteClient<>(new HoodieSparkEngineContext(jsc), config);
   }
 

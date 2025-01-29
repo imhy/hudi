@@ -31,7 +31,10 @@ import java.io.Serializable;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Properties;
+import java.util.stream.Collectors;
 
 import static org.apache.hudi.common.util.ConfigUtils.getRawValueWithAltKeys;
 import static org.apache.hudi.common.util.ConfigUtils.loadGlobalProperties;
@@ -147,6 +150,34 @@ public class HoodieConfig implements Serializable {
             e.printStackTrace();
           }
         });
+  }
+
+  protected Map<String, ConfigProperty<?>> getPropertiesMap(String configClassName) {
+    Class<?> configClass = ReflectionUtils.getClass(configClassName);
+    return Arrays.stream(configClass.getDeclaredFields())
+        .filter(f -> Modifier.isStatic(f.getModifiers()))
+        .filter(f -> f.getType().isAssignableFrom(ConfigProperty.class))
+        .map(f -> {
+          try {
+            return (ConfigProperty<?>) f.get("null");
+          } catch (IllegalAccessException e) {
+            e.printStackTrace();
+            return null;
+          }
+        }).filter(Objects::nonNull)
+        .collect(Collectors.toMap(ConfigProperty::key, cp -> cp));
+  }
+
+  public void setDeclaredProps(String configClassName, TypedProperties props) {
+    Map<String, ConfigProperty<?>> declaredPropsMap = getPropertiesMap(configClassName);
+    if (this.props == null) {
+      this.props = new TypedProperties();
+    }
+    for (Map.Entry<String, ConfigProperty<?>> entry : declaredPropsMap.entrySet()) {
+      if (props.containsKey(entry.getKey())) {
+        this.props.setProperty(entry.getKey(), props.getProperty(entry.getKey()));
+      }
+    }
   }
 
   public <T> String getString(ConfigProperty<T> configProperty) {

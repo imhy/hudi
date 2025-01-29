@@ -207,6 +207,59 @@ public class TestHoodieIndex extends TestHoodieMetadataBase {
   }
 
   @Test
+  public void testReadIndex() throws IOException {
+    initPath();
+    initSparkContexts();
+    initHoodieStorage();
+
+    Properties indexProps = new Properties();
+    indexProps.put(HoodieIndexConfig.INDEX_TYPE.key(), IndexType.BUCKET.name());
+    indexProps.put(HoodieTableConfig.POPULATE_META_FIELDS.key(), true);
+    indexProps.put("hoodie.datasource.write.recordkey.field", "_row_key");
+    indexProps.put(HoodieTableConfig.RECORDKEY_FIELDS.key(), "_row_key");
+    indexProps.put("hoodie.bucket.index.hash.field","_row_key");
+    indexProps.put("hoodie.bucket.index.num.buckets","8");
+
+    metaClient = HoodieTestUtils.init(storageConf, basePath, HoodieTableType.COPY_ON_WRITE, indexProps);
+    HoodieIndexConfig.Builder indexBuilder = HoodieIndexConfig.newBuilder().withIndexType(IndexType.BUCKET)
+        .fromProperties(indexProps)
+        .withIndexType(IndexType.BUCKET);
+
+    HoodieMetadataConfig.Builder metadataConfigBuilder = HoodieMetadataConfig.newBuilder()
+        .withMetadataIndexBloomFilter(false)
+        .withMetadataIndexColumnStats(false);
+
+    config = getConfigBuilder()
+        .withProperties(indexProps)
+        .withSchema(RawTripTestPayload.JSON_DATA_SCHEMA_STR)
+        .withPayloadConfig(HoodiePayloadConfig.newBuilder()
+            .withPayloadClass(RawTripTestPayload.class.getName())
+            .withPayloadOrderingField("number").build())
+        .withRollbackUsingMarkers(false)
+        .withIndexConfig(indexBuilder.build())
+        .withAutoCommit(false)
+        .withMetadataConfig(metadataConfigBuilder.build())
+        .withLayoutConfig(HoodieLayoutConfig.newBuilder().fromProperties(indexBuilder.build().getProps())
+            .withLayoutPartitioner(SparkBucketIndexPartitioner.class.getName()).build())
+        .build();
+    writeClient = getHoodieWriteClient(config);
+
+    HoodieTable hoodieTable = HoodieSparkTable.create(config, context, metaClient);
+    List<HoodieRecord> records = getInsertsWithSameKeyInTwoPartitions();
+    JavaRDD<HoodieRecord> writtenRecords = jsc.parallelize(records, 1);
+
+    // Insert totalRecords records
+    String newCommitTime = writeClient.createNewInstantTime();
+    writeClient.startCommitWithTime(newCommitTime);
+    JavaRDD<WriteStatus> writeStatusRdd = writeClient.upsert(writtenRecords, newCommitTime);
+    List<WriteStatus> writeStatuses = writeStatusRdd.collect();
+    assertNoWriteErrors(writeStatuses);
+
+    HoodieIndexConfig indexConfig = HoodieIndexConfig.newBuilder().fromTablePath(storage, basePath).build();
+    assertEquals(IndexType.BUCKET.name(), indexConfig.getString(HoodieIndexConfig.INDEX_TYPE.key()));
+  }
+
+  @Test
   public void testRecordIndexForNonGlobalWrites() throws Exception {
     setUp(IndexType.RECORD_INDEX, true, true);
     final int totalRecords = 4;

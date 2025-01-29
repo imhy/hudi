@@ -23,13 +23,19 @@ import org.apache.hudi.common.config.ConfigGroups;
 import org.apache.hudi.common.config.ConfigProperty;
 import org.apache.hudi.common.config.HoodieConfig;
 import org.apache.hudi.common.config.HoodieStorageConfig;
+import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.engine.EngineType;
+import org.apache.hudi.common.table.HoodieTableConfig;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.util.ConfigUtils;
 import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.exception.HoodieIndexException;
 import org.apache.hudi.exception.HoodieNotSupportedException;
 import org.apache.hudi.index.HoodieIndex;
 import org.apache.hudi.keygen.constant.KeyGeneratorOptions;
 
+import org.apache.hudi.storage.HoodieStorage;
+import org.apache.hudi.storage.StoragePath;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -553,6 +559,17 @@ public class HoodieIndexConfig extends HoodieConfig {
         this.hoodieIndexConfig.getProps().load(reader);
         return this;
       }
+    }
+
+    public Builder fromTablePath(HoodieStorage storage, String tablePath) throws IOException {
+      StoragePath metaPath = new StoragePath(tablePath, HoodieTableMetaClient.METAFOLDER_NAME);
+      TypedProperties loadedProperties = ConfigUtils.fetchConfigs(storage, metaPath,
+          HoodieTableConfig.HOODIE_PROPERTIES_FILE, HoodieTableConfig.HOODIE_PROPERTIES_FILE_BACKUP,
+          HoodieTableConfig.MAX_READ_RETRIES, HoodieTableConfig.READ_RETRY_DELAY_MSEC);
+
+      hoodieIndexConfig.setDeclaredProps(HoodieIndexConfig.class.getName(), loadedProperties);
+
+      return this;
     }
 
     public Builder fromProperties(Properties props) {
